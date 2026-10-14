@@ -1,0 +1,7 @@
+Method,Selected_Features,Num_Features,CV_RMSE,Test_R2
+Baseline OLS,"['R&D Spend', 'Administration', 'Marketing Spend', 'State_Florida', 'State_New York']",5,9550.676105685261,0.8987266414328636
+LassoCV,"['R&D Spend', 'Administration', 'Marketing Spend']",3,9104.681197069245,0.900065308303732
+RFECV,"['R&D Spend', 'Administration', 'Marketing Spend']",3,9104.681197069245,0.900065308303732
+Forward SFS,"['R&D Spend', 'Administration', 'Marketing Spend']",3,9104.681197069245,0.900065308303732
+ElasticNetCV,"['R&D Spend', 'Administration', 'Marketing Spend']",3,9104.681197069245,0.900065308303732
+Exhaustive,"['R&D Spend', 'Administration', 'Marketing Spend']",3,9104.681197069245,0.900065308303732
