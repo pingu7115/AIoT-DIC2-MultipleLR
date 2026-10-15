@@ -1415,9 +1415,10 @@
 
       keys.forEach(key => {
         const info = meta[key];
+        const safeKey = key.replace(/[^a-zA-Z0-9]/g, '_');
         const group = document.createElement('div');
         group.className = 'input-group';
-        group.id = `inputGroup_${key.replace(/\s+/g, '_')}`;
+        group.id = `inputGroup_${safeKey}`;
 
         if (info.type === 'select') {
           // Dropdown
@@ -1425,7 +1426,7 @@
             <div class="input-label-row">
               <span>${info.label || key}</span>
             </div>
-            <select id="input_${key.replace(/\s+/g, '_')}" class="input-field">
+            <select id="input_${safeKey}" class="input-field select-input">
               ${info.options.map(opt => {
                 const val = typeof opt === 'object' ? opt.value : opt;
                 const txt = typeof opt === 'object' ? opt.text : opt;
@@ -1435,30 +1436,29 @@
             </select>
           `;
           container.appendChild(group);
-          group.querySelector('select').addEventListener('change', calculateLivePrediction);
+          group.querySelector('.select-input').addEventListener('change', calculateLivePrediction);
         } else {
           // Range + number input
-          const safeKey = key.replace(/\s+/g, '_');
           const prefix = info.prefix || (currentDataset.isCurrency && currentDataset.targetUnit === '$' ? '$' : '');
           const unit = currentDataset.targetUnit || '';
           
           group.innerHTML = `
             <div class="input-label-row">
               <span>${info.label || key}</span>
-              <span id="label_${safeKey}" style="color: var(--primary); font-family: 'Fira Code', monospace;">
+              <span id="label_${safeKey}" class="val-label" style="color: var(--primary); font-family: 'Fira Code', monospace;">
                 ${prefix}${Number(info.default).toLocaleString()}${unit}
               </span>
             </div>
-            <input type="number" id="num_${safeKey}" class="input-field" 
+            <input type="number" id="num_${safeKey}" class="input-field num-input" 
                    value="${info.default}" min="${info.min}" max="${info.max}" step="${info.step}">
-            <input type="range" id="range_${safeKey}" class="range-slider" 
+            <input type="range" id="range_${safeKey}" class="range-slider range-input" 
                    value="${info.default}" min="${info.min}" max="${info.max}" step="${info.step}">
           `;
           container.appendChild(group);
 
-          const numEl = group.querySelector(`#num_${safeKey}`);
-          const rangeEl = group.querySelector(`#range_${safeKey}`);
-          const labelEl = group.querySelector(`#label_${safeKey}`);
+          const numEl = group.querySelector('.num-input');
+          const rangeEl = group.querySelector('.range-input');
+          const labelEl = group.querySelector('.val-label');
 
           rangeEl.addEventListener('input', (e) => {
             numEl.value = e.target.value;
@@ -1795,18 +1795,27 @@
         const meta = currentDataset.feature_meta || {};
         let val = 0;
 
-        if (c.feature.includes('_')) {
+        if (meta[c.feature]) {
+          // Direct numeric feature from meta
+          const safeFeat = c.feature.replace(/[^a-zA-Z0-9]/g, '_');
+          const numEl = document.getElementById(`num_${safeFeat}`);
+          if (numEl) {
+            val = parseFloat(numEl.value) || 0;
+          }
+        } else if (c.feature.includes('_')) {
           // Categorical dummy (e.g. State_New York, State_Florida)
-          const parts = c.feature.split('_');
-          const colName = parts[0];
-          const catVal = parts.slice(1).join('_');
-          const selEl = document.getElementById(`input_${colName.replace(/\s+/g, '_')}`);
+          const idx = c.feature.indexOf('_');
+          const colName = c.feature.substring(0, idx);
+          const catVal = c.feature.substring(idx + 1);
+          const safeCol = colName.replace(/[^a-zA-Z0-9]/g, '_');
+          const selEl = document.getElementById(`input_${safeCol}`);
           if (selEl && selEl.value === catVal) {
             val = 1.0;
           }
         } else {
-          // Numeric slider/number
-          const numEl = document.getElementById(`num_${c.feature.replace(/\s+/g, '_')}`);
+          // Numeric slider/number fallback
+          const safeFeat = c.feature.replace(/[^a-zA-Z0-9]/g, '_');
+          const numEl = document.getElementById(`num_${safeFeat}`);
           if (numEl) {
             val = parseFloat(numEl.value) || 0;
           }
