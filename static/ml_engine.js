@@ -33,7 +33,7 @@
       headers = firstLine.split(delimiter).map(s => s.trim().replace(/^["']|["']$/g, ''));
       for (let i = 1; i < lines.length; i++) {
         const parts = lines[i].split(delimiter).map(s => s.trim().replace(/^["']|["']$/g, ''));
-        if (parts.length >= headers.length) rawRows.push(parts);
+        if (parts.length >= headers.length && parts.some(p => p !== '')) rawRows.push(parts);
       }
     } else {
       // Whitespace delimiter (e.g. housing.csv)
@@ -64,14 +64,17 @@
   // --- 2. Data Preparation & One-Hot Encoding ---
   function prepareData(parsed, targetColumnName) {
     const { headers, rows } = parsed;
-    let targetIdx = -1;
+    if (!rows || rows.length === 0) {
+      throw new Error('CSV 檔案中所有資料列皆為空白或空逗號（檔案僅含標題行而無數值），請確認檔案內容是否正常匯出。');
+    }
 
+    let targetIdx = -1;
     if (targetColumnName) {
       targetIdx = headers.findIndex(h => h.toLowerCase() === targetColumnName.toLowerCase());
     }
-    // If not found, look for common names
+    // If not found, look for common regression targets
     if (targetIdx === -1) {
-      const candidates = ['profit', 'medv', 'price', 'target', 'sales', 'value'];
+      const candidates = ['price', 'medv', 'profit', 'target', 'sales', 'value', 'y', 'close'];
       for (const cand of candidates) {
         targetIdx = headers.findIndex(h => h.toLowerCase() === cand);
         if (targetIdx !== -1) break;
@@ -91,18 +94,48 @@
 
     const actualTargetName = headers[targetIdx];
 
+    // Helper to parse values (supports dates like 20141013T000000 -> 2014)
+    function parseValue(val) {
+      if (val === null || val === undefined || val === '') return NaN;
+      if (typeof val === 'number') return val;
+      const s = String(val).trim().replace(/^["']|["']$/g, '');
+      if (/^\d{4}\d{2}\d{2}T/i.test(s)) return parseFloat(s.substring(0, 4));
+      return parseFloat(s);
+    }
+
+    // Downsample rows if too large for smooth client-side execution (max 1000 rows)
+    let activeRows = rows;
+    if (rows.length > 1000) {
+      const step = rows.length / 1000;
+      activeRows = [];
+      for (let i = 0; i < 1000; i++) {
+        activeRows.push(rows[Math.floor(i * step)]);
+      }
+    }
+
+    const isIdCol = (h) => /^(id|_id|index|unnamed|row_id|guid)$/i.test(h.trim());
+
     // Detect column types
     const colTypes = {};
     const colValues = {};
     headers.forEach((h, idx) => {
-      if (idx === targetIdx) return;
-      const sample = rows.map(r => r[idx]);
-      const numValid = sample.filter(v => v !== '' && !isNaN(Number(v))).length;
-      if (numValid / sample.length > 0.8) {
+      if (idx === targetIdx || isIdCol(h)) {
+        colTypes[h] = 'skip';
+        return;
+      }
+      const sample = activeRows.map(r => r[idx]);
+      const numValid = sample.filter(v => !isNaN(parseValue(v))).length;
+      if (numValid / sample.length > 0.75) {
         colTypes[h] = 'numeric';
       } else {
-        colTypes[h] = 'categorical';
-        colValues[h] = Array.from(new Set(sample.filter(v => v !== ''))).sort();
+        const uniqueVals = Array.from(new Set(sample.filter(v => v !== ''))).sort();
+        // Skip high-cardinality categoricals (> 12 unique values) to prevent combinatorial explosion
+        if (uniqueVals.length > 12) {
+          colTypes[h] = 'skip';
+        } else {
+          colTypes[h] = 'categorical';
+          colValues[h] = uniqueVals;
+        }
       }
     });
 
@@ -111,12 +144,11 @@
     const featureMeta = {};
 
     headers.forEach((h, idx) => {
-      if (idx === targetIdx) return;
       if (colTypes[h] === 'numeric') {
         finalFeatureNames.push(h);
-        const nums = rows.map(r => parseFloat(r[idx])).filter(v => !isNaN(v));
-        const minVal = Math.min(...nums);
-        const maxVal = Math.max(...nums);
+        const nums = activeRows.map(r => parseValue(r[idx])).filter(v => !isNaN(v));
+        const minVal = nums.length ? Math.min(...nums) : 0;
+        const maxVal = nums.length ? Math.max(...nums) : 100;
         const step = (maxVal - minVal) > 100 ? Math.round((maxVal - minVal) / 50) : (maxVal - minVal) / 50;
         featureMeta[h] = {
           min: minVal,
@@ -125,9 +157,8 @@
           default: Number(((minVal + maxVal) / 2).toFixed(2)),
           label: h
         };
-      } else {
+      } else if (colTypes[h] === 'categorical') {
         const cats = colValues[h];
-        // Drop first category as baseline/reference
         const refCat = cats[0];
         featureMeta[h] = {
           type: 'select',
@@ -145,18 +176,17 @@
     const X = [];
     const y = [];
 
-    for (let r = 0; r < rows.length; r++) {
-      const row = rows[r];
-      const yVal = parseFloat(row[targetIdx]);
+    for (let r = 0; r < activeRows.length; r++) {
+      const row = activeRows[r];
+      const yVal = parseValue(row[targetIdx]);
       if (isNaN(yVal)) continue;
 
       const xRow = [];
       headers.forEach((h, idx) => {
-        if (idx === targetIdx) return;
         if (colTypes[h] === 'numeric') {
-          const val = parseFloat(row[idx]);
+          const val = parseValue(row[idx]);
           xRow.push(isNaN(val) ? 0 : val);
-        } else {
+        } else if (colTypes[h] === 'categorical') {
           const cats = colValues[h];
           const curVal = row[idx];
           for (let i = 1; i < cats.length; i++) {
@@ -175,7 +205,8 @@
       featureNames: finalFeatureNames,
       targetName: actualTargetName,
       featureMeta,
-      totalRows: X.length
+      totalRows: rows.length,
+      sampledRows: activeRows.length
     };
   }
 
@@ -635,25 +666,22 @@
     }
 
     const exhaustiveCombos = {};
+    const searchFeats = (featureNames.length > 8) ? sfsOrder.slice(0, 8) : featureNames;
     for (let k = 1; k <= K_limit; k++) {
-      if (P <= 15) {
-        const combos = getCombinations(featureNames, k);
-        let bestCombo = combos[0];
-        let bestRMSE = Infinity;
-        for (const combo of combos) {
-          const cIndices = combo.map(f => featureNames.indexOf(f));
-          const subXtr = X_train.map(r => cIndices.map(i => r[i]));
-          const subXte = X_test.map(r => cIndices.map(i => r[i]));
-          const model = solveOLS(subXtr, y_train, subXte, y_test, combo, testIndices);
-          if (model.rmse < bestRMSE) {
-            bestRMSE = model.rmse;
-            bestCombo = combo;
-          }
+      const combos = getCombinations(searchFeats, k);
+      let bestCombo = combos[0];
+      let bestRMSE = Infinity;
+      for (const combo of combos) {
+        const cIndices = combo.map(f => featureNames.indexOf(f));
+        const subXtr = X_train.map(r => cIndices.map(i => r[i]));
+        const subXte = X_test.map(r => cIndices.map(i => r[i]));
+        const model = solveOLS(subXtr, y_train, subXte, y_test, combo, testIndices);
+        if (model.rmse < bestRMSE) {
+          bestRMSE = model.rmse;
+          bestCombo = combo;
         }
-        exhaustiveCombos[k] = bestCombo;
-      } else {
-        exhaustiveCombos[k] = sfsOrder.slice(0, k);
       }
+      exhaustiveCombos[k] = bestCombo;
     }
 
     // Evaluate progression for k = 1 .. K_limit for each algorithm

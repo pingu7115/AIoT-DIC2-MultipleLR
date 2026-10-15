@@ -1010,6 +1010,9 @@
         <button class="preset-chip" id="presetBostonHousing">
           <i class="fa-solid fa-house"></i> Boston Housing (housing.csv)
         </button>
+        <button class="preset-chip" id="presetKCHousing">
+          <i class="fa-solid fa-city"></i> King County Houses (kc_house_data.csv)
+        </button>
       </div>
 
       <!-- Target Column Selector (if user wants to customize target) -->
@@ -1513,6 +1516,11 @@
         loadFromUrl('housing.csv', 'Boston Housing (housing.csv)', 'MEDV');
       });
 
+      document.getElementById('presetKCHousing').addEventListener('click', () => {
+        document.getElementById('customUrlInput').value = 'kc_house_data.csv';
+        loadFromUrl('kc_house_data.csv', 'King County House Sales (kc_house_data.csv)', 'price');
+      });
+
       // 4. Load from URL button
       document.getElementById('btnLoadUrl').addEventListener('click', () => {
         const url = document.getElementById('customUrlInput').value.trim();
@@ -1571,25 +1579,43 @@
 
     function processAndApplyCustomCSV(csvText, name, targetCol = null) {
       try {
-        showStatus(`<i class="fa-solid fa-gears fa-spin"></i> 正在即時訓練 5 種機器學習演算法並計算統計檢定...`, 'info');
-        const customModel = window.MLEngine.processDataset(csvText, name, targetCol);
+        // 1. Immediately parse CSV and populate Target Selector
+        const parsed = window.MLEngine.parseCSV(csvText);
+        if (!parsed || !parsed.headers || parsed.headers.length === 0) {
+          throw new Error('無法解析 CSV 檔案標題，請確認檔案格式是否正確。');
+        }
+
+        // Determine default target
+        let chosenTarget = targetCol;
+        if (!chosenTarget) {
+          const candidates = ['price', 'medv', 'profit', 'target', 'sales', 'value', 'y', 'close'];
+          for (const cand of candidates) {
+            const found = parsed.headers.find(h => h.toLowerCase() === cand);
+            if (found) { chosenTarget = found; break; }
+          }
+          if (!chosenTarget) chosenTarget = parsed.headers[parsed.headers.length - 1];
+        }
 
         // Populate Target selector
-        const parsed = window.MLEngine.parseCSV(csvText);
-        if (parsed && parsed.headers) {
-          const sel = document.getElementById('targetColSelect');
-          sel.innerHTML = parsed.headers.map(h => `<option value="${h}" ${h === customModel.target ? 'selected' : ''}>${h}</option>`).join('');
-          document.getElementById('targetColWrapper').style.display = 'flex';
-          
-          document.getElementById('btnRetrainTarget').onclick = () => {
-            const chosenTarget = sel.value;
-            processAndApplyCustomCSV(csvText, name, chosenTarget);
-          };
+        const sel = document.getElementById('targetColSelect');
+        sel.innerHTML = parsed.headers.map(h => `<option value="${h}" ${h === chosenTarget ? 'selected' : ''}>${h}</option>`).join('');
+        document.getElementById('targetColWrapper').style.display = 'flex';
+        
+        document.getElementById('btnRetrainTarget').onclick = () => {
+          const newTarget = sel.value;
+          processAndApplyCustomCSV(csvText, name, newTarget);
+        };
+
+        if (!parsed.rows || parsed.rows.length === 0) {
+          throw new Error(`檔案「${name}」中未檢測到有效數據行（檔案雖包含欄位標題，但所有資料行皆為空白逗號「,,,,,,,,」無任何數字內容）。請確認您上傳的 CSV 檔案是否正常匯出包含數據。`);
         }
+
+        showStatus(`<i class="fa-solid fa-gears fa-spin"></i> 正在即時訓練 5 種機器學習演算法並計算統計檢定...`, 'info');
+        const customModel = window.MLEngine.processDataset(csvText, name, chosenTarget);
 
         // Apply dataset to dashboard
         loadDataset('custom', customModel);
-        showStatus(`<i class="fa-solid fa-circle-check"></i> 成功載入並分析 ${name}！共 ${customModel.totalRows} 筆樣本，評估甜點 k=${customModel.sweet_spot_k}。`, 'success');
+        showStatus(`<i class="fa-solid fa-circle-check"></i> 成功載入並分析 ${name}！共 ${customModel.totalRows.toLocaleString()} 筆樣本（${customModel.totalRows > 1000 ? '自動抽樣 1,000 筆極速推論' : '全量運算'}），目標變數：${customModel.target}，評估最佳甜點 k=${customModel.sweet_spot_k}。`, 'success');
       } catch (err) {
         console.error(err);
         showStatus(`分析失敗: ${err.message}`, 'error');
