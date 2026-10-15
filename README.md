@@ -60,8 +60,34 @@ python -m http.server 8080
 
 ---
 
+## 🏆 教授加分項實作說明 (Bonus Features)
+
+### 1. 【加總分 1分】下拉視窗呈現兩種 Problem
+在網頁頂端導覽列提供即時下拉選單（`Problem / Dataset`）：
+- **🏢 50 Startups (新創獲利預測 - Profit Prediction)**：評估研發、行銷、行政與州別對淨利的影響。
+- **🏠 Boston Housing (波士頓房價分析 - MEDV Prediction)**：以 13 項城鎮環境與住宅特徵預測房價中位數（MEDV）。
+- **🌐 任意輸入 Dataset (Custom Dataset)**：展開自訂資料集輸入介面。
+
+切換時儀表板所有指標（RMSE, R², 統計係數表, 動態方程式, 5 大特徵篩選折線圖, 即時預測機, 離群值表）均即時無縫切換。
+
+### 2. 【加總分 2分】可任意輸入 Dataset 並即時輸出分析結果
+- 支援直接輸入任何公開 CSV 網址（例如教授指定之範例：`https://raw.githubusercontent.com/Avik-Jain/100-Days-Of-ML-Code/master/datasets/50_Startups.csv`）或本地上傳 CSV 檔案。
+- **純前端即時機器學習引擎 (`ml_engine.js`)**：
+  - 自動偵測分隔符號（逗點、空白、Tab、分號）。
+  - 自動識別數值欄位與類別欄位，並進行虛擬變數 One-Hot Encoding（自動避免虛擬變數陷阱）。
+  - 自動 80/20 訓練與測試集切分。
+  - 即時執行 **5 種特徵篩選演算法**（Lasso, Forward SFS, RFE, ElasticNet, Exhaustive Search）。
+  - 計算完整統計檢定：標準誤 ($\text{SE}$)、$t\text{-stat}$、$p\text{-value}$、95% 信賴區間、$\text{VIF}$ 多重共線性檢驗。
+  - 計算評估指標：測試集 $\text{RMSE}$、$\text{MAE}$、$R^2$、$\text{Adjusted } R^2$、$F\text{-statistic}$。
+  - 自動產生動態預測滑桿、95% 預測區間與前 10 大離群值診斷表。
+
+---
+
 ## 🙏 鳴謝與參考來源 (Acknowledgments)
 
 - **設計與版面參考**：[StatsUnlock Multiple Linear Regression Calculator](https://statsunlock.com/)
-- **資料集來源**：50 Startups Dataset (Avik Jain 100-Days-Of-ML-Code)
+- **資料集來源**：
+  - 50 Startups Dataset: [Avik Jain 100-Days-Of-ML-Code](https://raw.githubusercontent.com/Avik-Jain/100-Days-Of-ML-Code/master/datasets/50_Startups.csv)
+  - Boston Housing Dataset: [housing.csv](file:///housing.csv)
 - **開源函式庫**：`scikit-learn`, `statsmodels`, `pandas`, `numpy`, `matplotlib`, `chart.js`
+
